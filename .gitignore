@@ -36,4 +36,7 @@ nosetests.xml
 .project
 .pydevproject
 
+# idea
+.idea
+
 !src/Image-ExifTool/lib
