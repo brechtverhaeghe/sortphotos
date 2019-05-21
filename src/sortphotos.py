@@ -28,6 +28,22 @@ locale.setlocale(locale.LC_ALL, '')
 
 exiftool_location = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'Image-ExifTool', 'exiftool')
 
+WEEKDAYS = {
+    'monday': 0,
+    'maandag': 0,
+    'tuesday': 1,
+    'dinsdag': 1,
+    'wednesday': 2,
+    'woensdag': 2,
+    'thursday': 3,
+    'donderdag': 3,
+    'friday': 4,
+    'vrijdag': 4,
+    'saterday': 5,
+    'zaterdag': 5,
+    'sunday': 6,
+    'zondag': 6,
+}
 
 # -------- convenience methods -------------
 
@@ -227,7 +243,7 @@ class ExifTool(object):
 def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         copy_files=False, test=False, remove_duplicates=True, day_begins=0,
         additional_groups_to_ignore=['File'], additional_tags_to_ignore=[],
-        use_only_groups=None, use_only_tags=None, verbose=True, keep_filename=False):
+        use_only_groups=None, use_only_tags=None, verbose=True, keep_filename=False, ignore_date_pattern=[]):
     """
     This function is a convenience wrapper around ExifTool based on common usage scenarios for sortphotos.py
 
@@ -267,6 +283,9 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         a list of tags that will be exclusived searched across for date info
     verbose : bool
         True if you want to see details of file processing
+    ignore_date_pattern : list(str)
+        if the list is len=1 => ignore_date_pattern that date
+        if the list is len>1 => delete between dates (has to be in pairs)
 
     """
 
@@ -311,6 +330,24 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
 
     if test:
         test_file_dict = {}
+
+    ignore_patterns = []
+    for date_pattern in ignore_date_pattern:
+        if WEEKDAYS.get(date_pattern):
+            int_day = WEEKDAYS.get(date_pattern)
+            def fnc(dt, i=int_day): return dt.weekday() == i
+            ignore_patterns.append(fnc)
+            if verbose:
+                print('Added ignore pattern for files on day %s.\n' % date_pattern)
+        if '-' in date_pattern:
+            hours = date_pattern.split('-')
+            if len(hours) != 2:
+                raise Exception('Need start and ending hours, none more, none less...')
+
+            def fnc(dt, start=int(hours[0]), end=int(hours[1])): return start <= dt.hour <= end
+            ignore_patterns.append(fnc)
+            if verbose:
+                print('Added ignore pattern for files between %s and %s hours.\n' % ((hours[0], hours[1])))
 
     # parse output extracting oldest relevant date
     for idx, data in enumerate(metadata):
@@ -374,7 +411,7 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
             filename = date.strftime(rename_format) + ext.lower()
 
         # setup destination file
-        dest_file = os.path.join(dest_file, filename.encode('utf-8'))
+        dest_file = os.path.join(dest_file, filename)
         root, ext = os.path.splitext(dest_file)
 
         if verbose:
@@ -384,6 +421,14 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
             else:
                 name += '(move): '
             print(name + dest_file)
+
+        ignore = False
+        for ignore_pattern in ignore_patterns:
+            if ignore_pattern(date):
+                ignore = True
+                if verbose:
+                    print('File is ignored by date pattern.\n')
+                break
 
 
         # check for collisions
@@ -423,8 +468,8 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
 
         else:
 
-            if fileIsIdentical:
-                continue  # ignore identical files
+            if fileIsIdentical or ignore:
+                continue  # ignore identical files and ignored files
             else:
                 if copy_files:
                     shutil.copy2(src_file, dest_file)
@@ -489,6 +534,9 @@ def main():
                     default=None,
                     help='specify a restricted set of tags to search for date information\n\
     e.g., EXIF:CreateDate')
+    parser.add_argument('--ignore-date-pattern', type=str, nargs='+', default=[],
+                    help='specify a date, or a couple of dates to ignore all photos on/between those patterns\n'
+                         'e.g., saturday sunday 0-6 18-24')
 
     # parse command line arguments
     args = parser.parse_args()
@@ -496,7 +544,7 @@ def main():
     sortPhotos(args.src_dir, args.dest_dir, args.sort, args.rename, args.recursive,
         args.copy, args.test, not args.keep_duplicates, args.day_begins,
         args.ignore_groups, args.ignore_tags, args.use_only_groups,
-        args.use_only_tags, not args.silent, args.keep_filename)
+        args.use_only_tags, not args.silent, args.keep_filename, args.ignore_date_pattern)
 
 if __name__ == '__main__':
     main()
